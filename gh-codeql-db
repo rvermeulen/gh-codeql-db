@@ -1,35 +1,71 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-echo "Hello gh-codeql-db!"
+usage() {
+    cat <<EOF
+Usage:
+    $0 list <owner/repo> [language]
+    $0 download <owner/repo> <language>
+EOF
+}
 
-# Snippets to help get started:
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
 
-# Determine if an executable is in the PATH
-# if ! type -p ruby >/dev/null; then
-#   echo "Ruby not found on the system" >&2
-#   exit 1
-# fi
+command=$1
+shift
 
-# Pass arguments through to another command
-# gh issue list "$@" -R cli/cli
+list_command() {
+    local repo="${1:-}"
+    local language="${2:-}"
 
-# Using the gh api command to retrieve and format information
-# QUERY='
-#   query($endCursor: String) {
-#     viewer {
-#       repositories(first: 100, after: $endCursor) {
-#         nodes {
-#           nameWithOwner
-#           stargazerCount
-#         }
-#       }
-#     }
-#   }
-# '
-# TEMPLATE='
-#   {{- range $repo := .data.viewer.repositories.nodes -}}
-#     {{- printf "name: %s - stargazers: %v\n" $repo.nameWithOwner $repo.stargazerCount -}}
-#   {{- end -}}
-# '
-# exec gh api graphql -f query="${QUERY}" --paginate --template="${TEMPLATE}"
+    if [ -z "$repo" ]; then
+        echo "Repository not specified" >&2
+        exit 1
+    fi
+
+    local api_endpoint="/repos/spring-projects/spring-framework/code-scanning/codeql/databases"
+    if [ -n "$language" ]; then
+        api_endpoint="${api_endpoint}/${language}"
+    fi
+
+    gh api \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "${api_endpoint}" | jq '.'
+}
+
+download_command() {
+    local repo="${1:-}"
+    local language="${2:-}"
+
+    if [ -z "$repo" ] || [ -z "$language" ]; then
+        echo "Repository or language not specified" >&2
+        exit 1
+    fi
+
+    local output_file
+    output_file="$(echo "$repo" | tr '/' '-')-${language}.zip"
+
+    gh api \
+      -H "Accept: application/zip" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "/repos/${repo}/code-scanning/codeql/databases/${language}" > "${output_file}"
+    echo "Downloaded file: ${output_file}"
+}
+
+case "$command" in
+    list)
+        list_command "$@"
+        ;;
+    download)
+        download_command "$@"
+        ;;
+    *)
+        echo "Unknown command: $command" >&2
+        usage
+        exit 1
+        ;;
+esac
